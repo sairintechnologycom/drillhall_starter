@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/defects/*.test.js",
+    "test": "node --test test/defects/*.test.js test/regression/*.test.js",
     "start": "node src/index.js"
   }
 }
