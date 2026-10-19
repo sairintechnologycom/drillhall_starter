@@ -1,0 +1,14 @@
+{
+  "name": "atlas-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Project Atlas starter: AI operations assistant skeleton with intentional engineering defects for learners to repair.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/defects/*.test.js",
+    "start": "node src/index.js"
+  }
+}
