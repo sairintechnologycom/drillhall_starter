@@ -3,19 +3,29 @@
 /**
  * Model client config + call helper.
  *
- * DEFECT (unbounded retries): callModel ignores options.maxAttempts and retries
- * a failing transport up to an internal hard ceiling (50), not the caller's budget.
- *
- * DEFECT (no explicit model budget): getModelConfig does not expose maxTokens or
- * a monthly budget; buildModelRequest never attaches a token limit.
+ * Every model call is bounded: a token limit on each request, a monthly spend ceiling in the config,
+ * and a retry budget the caller sets (with a default and a hard cap) so a failing upstream cannot be
+ * hammered without limit.
  */
+
+const DEFAULT_MAX_ATTEMPTS = 3;
+const HARD_MAX_ATTEMPTS = 5;
 
 function getModelConfig() {
   return {
     provider: "mock",
-    model: "ops-assistant-small"
-    // intentionally no maxTokens / monthlyBudgetUsd
+    model: "ops-assistant-small",
+    maxTokens: 1024,
+    monthlyBudgetUsd: 100
   };
+}
+
+function attemptBudget(requested) {
+  if (requested === undefined) return DEFAULT_MAX_ATTEMPTS;
+  if (!Number.isInteger(requested) || requested < 1) {
+    throw new Error("maxAttempts must be a positive integer");
+  }
+  return Math.min(requested, HARD_MAX_ATTEMPTS);
 }
 
 /**
@@ -31,8 +41,7 @@ function callModel(prompt, options = {}) {
     (() => {
       throw new Error("transport required in offline starter");
     });
-  // Defect: caller maxAttempts is ignored; internal ceiling is far above a sane default.
-  const maxAttempts = 50;
+  const maxAttempts = attemptBudget(options.maxAttempts);
   let lastError = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -54,12 +63,14 @@ function callModel(prompt, options = {}) {
  */
 function buildModelRequest(prompt, overrides = {}) {
   const config = getModelConfig();
+  const requested = overrides.maxTokens;
   return {
     provider: config.provider,
     model: config.model,
     prompt,
-    ...overrides
-    // Defect: no maxTokens from config; no budget enforcement
+    ...overrides,
+    // A caller may ask for fewer tokens, never more than the configured limit.
+    maxTokens: Number.isInteger(requested) && requested > 0 ? Math.min(requested, config.maxTokens) : config.maxTokens
   };
 }
 

@@ -1,0 +1,30 @@
+{
+  "description": "Golden request to expected-recommendation cases for the offline evaluation runner.",
+  "cases": [
+    {
+      "id": "own-nonprod-restart",
+      "request": { "tenantId": "tenant-a", "environment": "nonprod", "procedureId": "restart-app-service" },
+      "expectedRecommendation": "Follow procedure: Restart App Service"
+    },
+    {
+      "id": "other-tenant-own-procedure",
+      "request": { "tenantId": "tenant-b", "environment": "nonprod", "procedureId": "tenant-b-scale-out" },
+      "expectedRecommendation": "Follow procedure: Scale out tenant B workload"
+    },
+    {
+      "id": "refuse-cross-tenant",
+      "request": { "tenantId": "tenant-a", "environment": "nonprod", "procedureId": "tenant-b-scale-out" },
+      "expectedRecommendation": "NO_RECOMMENDATION"
+    },
+    {
+      "id": "refuse-prod-from-nonprod",
+      "request": { "tenantId": "tenant-a", "environment": "nonprod", "procedureId": "prod-failover" },
+      "expectedRecommendation": "NO_RECOMMENDATION"
+    },
+    {
+      "id": "refuse-sensitive",
+      "request": { "tenantId": "tenant-a", "environment": "nonprod", "procedureId": "rotate-secret" },
+      "expectedRecommendation": "NO_RECOMMENDATION"
+    }
+  ]
+}

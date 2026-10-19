@@ -3,10 +3,8 @@
 /**
  * Tool registry and authorization.
  *
- * DEFECT (broad tool permissions): every known tool is granted to every
- * requester role. A production-minded registry must enforce least privilege:
- * each role gets exactly the tools its job needs, unknown roles get nothing,
- * and mutable tools are never granted to read-only roles.
+ * Least privilege: each role is granted exactly the tools its job needs. A role that is not listed,
+ * or a tool that does not exist, gets nothing. Mutable tools are never granted to the read-only role.
  */
 
 const TOOLS = {
@@ -16,13 +14,20 @@ const TOOLS = {
   "update-firewall": { mutable: true }
 };
 
+const ROLE_TOOLS = Object.freeze({
+  reader: Object.freeze(["read-status", "read-procedure"]),
+  operator: Object.freeze(["read-status", "read-procedure", "restart-service"]),
+  network: Object.freeze(["read-status", "read-procedure", "update-firewall"])
+});
+
 /**
  * @param {string} requesterRole
  * @param {string} toolName
  * @returns {boolean} whether the role may invoke the tool
  */
 function authorizeTool(requesterRole, toolName) {
-  return toolName in TOOLS;
+  if (!Object.hasOwn(ROLE_TOOLS, requesterRole)) return false;
+  return Object.hasOwn(TOOLS, toolName) && ROLE_TOOLS[requesterRole].includes(toolName);
 }
 
 /** @param {string} toolName */

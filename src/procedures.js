@@ -3,11 +3,9 @@
 /**
  * Offline procedure lookup stub — no network, fixed corpus.
  *
- * DEFECT (shared retrieval collection): one shared corpus is returned to every
- * caller. Entries carry tenantId, environment, and sensitive markers, but
- * listProcedures / lookupProcedure ignore them. A production-minded retrieval
- * path must partition by tenant and environment and never return
- * sensitive-flagged entries to the model or another tenant.
+ * Retrieval is partitioned: a caller sees only procedures for its own tenant and environment, and
+ * sensitive-flagged entries are never returned to anyone. A caller that does not say which tenant and
+ * environment it is gets nothing, so a missing context fails closed instead of reading the whole corpus.
  */
 
 const CORPUS = Object.freeze({
@@ -46,21 +44,32 @@ const CORPUS = Object.freeze({
   }
 });
 
-/**
- * @param {string} procedureId
- * @param {{ tenantId?: string, environment?: string }} [_context]
- */
-function lookupProcedure(procedureId, _context = {}) {
-  // DEFECT: context is ignored; any id is returned including sensitive/cross-tenant.
-  return CORPUS[procedureId] ?? null;
+function visibleTo(entry, context) {
+  return (
+    typeof context.tenantId === "string" &&
+    typeof context.environment === "string" &&
+    entry.tenantId === context.tenantId &&
+    entry.environment === context.environment &&
+    entry.sensitive === false
+  );
 }
 
 /**
- * @param {{ tenantId?: string, environment?: string }} [_context]
+ * @param {string} procedureId
+ * @param {{ tenantId?: string, environment?: string }} [context]
  */
-function listProcedures(_context = {}) {
-  // DEFECT: returns the full shared corpus with no tenant/environment/sensitivity filter.
-  return Object.values(CORPUS).map((entry) => ({ ...entry }));
+function lookupProcedure(procedureId, context = {}) {
+  const entry = Object.hasOwn(CORPUS, procedureId) ? CORPUS[procedureId] : undefined;
+  return entry && visibleTo(entry, context) ? entry : null;
+}
+
+/**
+ * @param {{ tenantId?: string, environment?: string }} [context]
+ */
+function listProcedures(context = {}) {
+  return Object.values(CORPUS)
+    .filter((entry) => visibleTo(entry, context))
+    .map((entry) => ({ ...entry }));
 }
 
 module.exports = { lookupProcedure, listProcedures, CORPUS };

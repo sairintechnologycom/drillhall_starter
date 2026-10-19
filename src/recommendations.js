@@ -1,14 +1,11 @@
 "use strict";
 
 /**
- * Recommendation builder: turns model output plus the retrieval result set
- * into a recommendation the service can act on.
+ * Recommendation builder: turns model output plus the retrieval result set into a recommendation
+ * the service can act on.
  *
- * DEFECT (unverified-citations): accepts any citation list — including ids
- * that were never retrieved and empty lists — and returns `{ ok: true, ... }`
- * regardless. A production-minded builder must require at least one citation
- * and every cited id to be a member of the retrieved set; unverifiable
- * citations must yield a rejection, never a recommendation.
+ * A recommendation must cite at least one procedure, and every cited id must be one that was actually
+ * retrieved for this request. Anything unverifiable is rejected, never passed through as a recommendation.
  */
 
 /**
@@ -17,14 +14,11 @@
  * @returns {{ ok: true, text: string, citations: string[] } | { ok: false, error: string }}
  */
 function buildRecommendation(modelOutput, retrievedProcedures) {
-  // DEFECT: retrievedProcedures is ignored; fabricated and empty citations pass through.
-  void retrievedProcedures;
-  const citations = Array.isArray(modelOutput.citations) ? [...modelOutput.citations] : [];
-  return {
-    ok: true,
-    text: modelOutput.text,
-    citations
-  };
+  const citations = Array.isArray(modelOutput?.citations) ? [...modelOutput.citations] : [];
+  const retrieved = new Set((retrievedProcedures ?? []).map((procedure) => procedure.id));
+  const verified = citations.length > 0 && citations.every((id) => typeof id === "string" && retrieved.has(id));
+  if (!verified) return { ok: false, error: "UNVERIFIED_CITATION" };
+  return { ok: true, text: modelOutput.text, citations };
 }
 
 module.exports = { buildRecommendation };

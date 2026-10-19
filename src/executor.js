@@ -3,23 +3,17 @@
 /**
  * Action executor.
  *
- * DEFECT (missing idempotency): every call with the same request id is executed
- * again. A production-minded executor must treat request id as an idempotency
- * key and return the prior result on replay without re-running the side effect.
- *
- * DEFECT (incomplete tenant authorization): a tenant→resource ownership map is
- * present, but executeAction never consults it. Any tenant can run an action
- * against any resource. Production-minded authorization must reject
- * cross-tenant resource access.
- *
- * DEFECT (missing rollback path): there is no compensating-action registry and
- * no rollback path. Mutable actions must register a compensating handler so a
- * failed or rolled-back action can restore prior state.
+ * - Idempotent on request id: a repeated id returns the prior result without re-running the action.
+ * - Tenant-authorized: a request that names a resource must come from the tenant that owns it.
+ * - Reversible: mutable actions register a compensating handler, and rollback runs it. An action with
+ *   no registered compensator fails closed instead of pretending to roll back.
  */
 
 const executionLog = [];
+const resultsByRequestId = new Map();
+const compensators = new Map();
 
-/** Seed ownership map — intentionally unused by executeAction (tenant auth defect). */
+/** Which tenant owns which resource. Consulted by executeAction. */
 const RESOURCE_OWNERS = Object.freeze({
   "app-service-a": "tenant-a",
   "app-service-b": "tenant-b",
@@ -29,6 +23,7 @@ const RESOURCE_OWNERS = Object.freeze({
 
 function resetExecutorState() {
   executionLog.length = 0;
+  resultsByRequestId.clear();
 }
 
 /**
@@ -36,10 +31,27 @@ function resetExecutorState() {
  * @param {{ run?: (action: string, request: object) => unknown }} [hooks]
  */
 function executeAction(request, hooks = {}) {
-  // DEFECT: RESOURCE_OWNERS is never checked — cross-tenant access succeeds.
-  // DEFECT: no compensating handlers registered or invoked on failure/rollback.
+  // Authorize before anything else, and never cache a refusal: the same id may be retried legitimately.
+  if (request.resourceId !== undefined) {
+    const owner = RESOURCE_OWNERS[request.resourceId];
+    if (owner === undefined || owner !== request.tenantId) {
+      return {
+        ok: false,
+        requestId: request.id,
+        error: "tenant authorization failed: resource is not owned by the requesting tenant",
+        replay: false
+      };
+    }
+  }
+
+  const prior = resultsByRequestId.get(request.id);
+  if (prior !== undefined) {
+    return { ok: true, requestId: request.id, result: prior, replay: true };
+  }
+
   const run = hooks.run ?? ((action) => ({ action, status: "done" }));
   const result = run(request.action, request);
+  resultsByRequestId.set(request.id, result);
   executionLog.push({
     requestId: request.id,
     action: request.action,
@@ -52,25 +64,36 @@ function executeAction(request, hooks = {}) {
 }
 
 /**
- * Intended compensating-action registration — shipped as a no-op (rollback defect).
- * @param {string} _action
- * @param {(entry: object) => unknown} _handler
+ * Register the handler that undoes an action.
+ * @param {string} action
+ * @param {(entry: object) => unknown} handler
  */
-function registerCompensatingAction(_action, _handler) {
-  // DEFECT: registration is discarded.
+function registerCompensatingAction(action, handler) {
+  if (typeof action !== "string" || action.length === 0) throw new Error("action name is required");
+  if (typeof handler !== "function") throw new Error("compensating handler must be a function");
+  compensators.set(action, handler);
 }
 
 /**
- * Intended rollback — shipped as a no-op that does not restore state.
+ * Undo an executed action by running its compensating handler.
+ * Fails closed when the request was never executed or its action has no compensator.
  * @param {string} requestId
  */
 function rollbackAction(requestId) {
-  // DEFECT: no compensating handler is invoked; prior state is not restored.
-  return { ok: false, requestId, compensated: false };
+  const entry = executionLog.find((candidate) => candidate.requestId === requestId);
+  if (!entry) return { ok: false, requestId, compensated: false, error: "unknown request id" };
+  if (entry.compensated) return { ok: true, requestId, compensated: true, replay: true };
+  const compensate = compensators.get(entry.action);
+  if (!compensate) {
+    return { ok: false, requestId, compensated: false, error: `no compensating action registered for ${entry.action}` };
+  }
+  const result = compensate(entry);
+  entry.compensated = true;
+  return { ok: true, requestId, compensated: true, result };
 }
 
 function getExecutionLog() {
-  return executionLog.slice();
+  return executionLog.map((entry) => ({ ...entry }));
 }
 
 function getResourceOwners() {

@@ -13,7 +13,10 @@ const { buildRecommendation } = require("./recommendations");
  */
 function handleRequest(raw, hooks = {}) {
   const request = acceptRequest(raw);
-  const procedure = raw.procedureId ? lookupProcedure(raw.procedureId) : null;
+  // Retrieval is scoped to the caller's tenant and environment (default non-production).
+  const procedure = raw.procedureId
+    ? lookupProcedure(raw.procedureId, { tenantId: request.tenantId, environment: raw.environment ?? "nonprod" })
+    : null;
   const modelRequest = buildModelRequest(
     `Recommend next step for action=${request.action} procedure=${procedure?.id ?? "none"}`
   );
